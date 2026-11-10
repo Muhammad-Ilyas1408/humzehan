@@ -58,8 +58,10 @@ Teachers rarely have time to adapt every lesson for every student.
 | --- | --- |
 | **Focus** | Chunks of about 100 words; a one-line "why this matters" hook; the key term in bold; a tick box per chunk |
 | **Easy-read** | Sentences under 12 words; everyday words; one idea per sentence; a mini glossary per chunk; readability font; read-aloud |
-| **Literal** | No idioms or metaphors (any in the source are explained); each chunk structured as What it is / How it works / Example; no vague quantities |
+| **Literal** | No idioms or metaphors (any in the source are explained); inside each chunk: What it is / How it works, plus Example only when the source gives one; keep the source's wording when it is vague, never invent numbers |
 | **Simple Urdu** (optional, combines with any style) | Everyday Urdu in Urdu script; science terms kept in English brackets |
+
+**All styles:** lessons contain only facts from the source, with no concluding sentences about importance, value or effects that the source does not state. The one exception is the glossary: meanings may use plain, accurate everyday definitions of a word, but must not add facts about the lesson topic.
 
 ## 7. Features and acceptance criteria
 
@@ -68,7 +70,9 @@ Each feature is built in its own branch and pull request.
 ### F1 — Lesson data models and LangGraph agent (text input)
 - Pydantic models exist for Lesson, Chunk, GlossaryItem, QuizItem, TraceStep and checker reviews.
 - Given source text and a learning style, the agent returns a Lesson with chunks and 3 quiz questions per chunk.
-- The checker reviews every chunk and decides `approve`, `simplify`, `add_glossary` or `fix_fact`, with a reason.
+- The checker reviews every chunk and decides `approve`, `simplify`, `add_glossary`, `fix_fact` or `missing_fact`, with a reason.
+- `fix_fact` and `missing_fact` are evidence-based: each quotes the unsupported chunk sentence or the missing source sentence, and flags whose evidence does not hold up are dropped in code.
+- A deterministic grounding pre-check marks chunk sentences with little word overlap with the source as suspect; the checker must judge each one, and confirmed ones become `fix_fact`.
 - Non-approved chunks are rewritten; the loop stops when all chunks are approved or after `AGENT_MAX_LOOPS` (default 2).
 - Every node appends a trace step (node, note, milliseconds).
 - Nodes are unit-tested with a fake LLM (no network in tests).

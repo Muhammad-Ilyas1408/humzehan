@@ -78,7 +78,7 @@ Loaded from environment variables / `backend/.env` by `core/config.py`.
 | `CORS_ORIGINS` | `http://localhost:3000` | Allowed frontend origins (comma-separated) |
 | `OPENAI_API_KEY` | — | LLM provider key (secret) |
 | `LLM_MODEL` | `gpt-4o-mini` | Model used by all agent nodes |
-| `AGENT_MAX_LOOPS` | `2` | Maximum checker → rewrite loops |
+| `AGENT_MAX_LOOPS` | `2` | Maximum rewrite rounds sent back by the checker |
 | `DATABASE_PATH` | `humzehan.db` | SQLite file location |
 
 ## 5. Data models (`schemas/`)
@@ -148,12 +148,13 @@ ingest → router → focus_transform    ┐
 ### 6.2 State (`agents/state.py`)
 
 ```python
-CheckerAction = Literal["approve", "simplify", "add_glossary", "fix_fact"]
+CheckerAction = Literal["approve", "simplify", "add_glossary", "fix_fact", "missing_fact"]
 
 class ChunkReview(BaseModel):
     chunk_index: int
     action: CheckerAction
     reason: str
+    quote: str | None              # evidence: see 6.4 (null for approve/simplify/add_glossary)
 
 class AgentState(TypedDict, total=False):
     source_text: str
@@ -163,20 +164,25 @@ class AgentState(TypedDict, total=False):
     title: str
     chunks: list[Chunk]
     reviews: list[ChunkReview]
-    loops: int
+    loops: int                     # rewrite rounds done
     trace: list[TraceStep]
 ```
+
+The LLM's structured-output models live in the same file: `ChunkDraft` (one chunk without quiz),
+`TransformOutput` (title + chunks), `QuizSet` (exactly 3 questions), `CheckerOutput` (`reviews`
+plus `suspect_judgments: list[SuspectJudgment]`, where `SuspectJudgment` is
+`{suspect_id, supported, reason}`; see 6.4).
 
 ### 6.3 Nodes (`agents/nodes/`)
 
 | Node | Input → output | Notes |
 | --- | --- | --- |
 | `ingest` | `source_text` / `image_b64` → `source_text` | Photo text extraction added in F4 |
-| `router` | `mode` → next node name | Pure function, no LLM call |
-| `*_transform` | `source_text` (+ reviews) → `title`, `chunks` | One prompt per mode; on a re-run, only non-approved chunks are rewritten using the checker's notes |
+| `router` | `mode` → next node name | No LLM call. The node records the decision in the trace; the pure function `route_by_mode(state)` drives the conditional edges |
+| `*_transform` | `source_text` (+ reviews) → `title`, `chunks`, `loops` | One prompt per mode (one factory builds all three nodes); on a re-run, only non-approved chunks are rewritten using the checker's notes, their quiz is cleared, and `loops` += 1 |
 | `urdu` | `chunks` → `chunks` | Runs only when `urdu=True` (F5) |
-| `quiz` | `chunks` → `chunks[i].quiz` | Answers only from the chunk |
-| `checker` | `source_text`, `chunks`, `mode` → `reviews`, `loops` | Structured output: one `ChunkReview` per chunk |
+| `quiz` | `chunks` → `chunks[i].quiz` | Answers only from the chunk; only chunks with an empty quiz (new or rewritten) get questions |
+| `checker` | `source_text`, `chunks`, `mode` → `reviews` | Grounding pre-check first (6.4), then one call over the whole lesson with the suspect sentences. Structured output with quoted evidence and one judgment per suspect; flags are verified in code (6.4) and normalised to exactly one `ChunkReview` per chunk (missing → approve). The trace note lists kept flags, "suspects: N (x unsupported, y supported)" and "dropped N unverified flags" |
 
 Every node appends a `TraceStep` and is a function of `(state) -> partial state`.
 
@@ -185,19 +191,64 @@ Every node appends a `TraceStep` and is a function of `(state) -> partial state`
 ```
 after checker:
     if all reviews are "approve"        → END
-    elif loops >= AGENT_MAX_LOOPS       → END (keep best version)
+    elif loops >= AGENT_MAX_LOOPS       → END (keep latest version)
     else                                → back to the mode's transform node
 ```
+
+Before routing, the checker's flags are verified by the pure function
+`verify_reviews()` in `agents/verification.py`; a flag whose evidence does not hold up is dropped:
+
+| Action | Meaning | `quote` | Kept only if |
+| --- | --- | --- | --- |
+| `fix_fact` | The chunk states something not in the SOURCE, or changes a fact | Exact sentence from the chunk | The quote is really in that chunk (case, whitespace, Markdown and curly quotes ignored) |
+| `missing_fact` | An important SOURCE fact appears in no chunk at all | Exact SOURCE sentence | The quote is in the SOURCE, at most half of its key words (stopwords ignored, words compared by their first 5 letters) appear anywhere in the lesson, and it is the first flag for that sentence |
+| `simplify`, `add_glossary` | Style rule broken / glossary needed | null | The reason is not empty |
+
+**Grounding pre-check** (deterministic, `find_suspect_sentences()` in `agents/verification.py`),
+run before the checker's LLM call:
+
+1. Split each chunk's hook and body into sentences (bold-only sub-heading lines such as
+   `**What it is**`, Markdown headings and list bullets are skipped). Glossary text is excluded.
+2. For each sentence, take its content words (lowercase, stopwords removed, simple suffix
+   stripping: plurals, `-ed`, `-ing`, `-ation`, `-en`, ...) and compute the share found in
+   the SOURCE.
+3. Sentences with a share below `GROUNDING_THRESHOLD` (0.6) are *suspect*. On the sample,
+   invented claims scored 0.50–0.57 and paraphrases 0.67 or more; a false suspect only costs
+   one checker judgment, not a rewrite.
+
+The suspects are listed in the checker's user message with ids; the checker must return one
+`SuspectJudgment` per id. `apply_suspect_judgments()` turns every suspect judged unsupported
+into a `fix_fact` on its chunk, with that sentence as the quote (it replaces a lower-priority
+flag, or is merged into an existing `fix_fact`). Supported and unjudged suspects change nothing.
+
+Rewrites receive the action, reason and quote, and must fix only the quoted problem without adding
+any sentence that the SOURCE does not support.
+
+`loops` counts rewrite rounds. With the default of 2:
+check → rewrite → check → rewrite → check → END (at most 3 checker passes).
 
 ### 6.5 Prompts (`agents/prompts/`)
 
 One Markdown file per node: `focus.md`, `easyread.md`, `literal.md`, `urdu.md`, `quiz.md`, `checker.md`. Every transform prompt includes: "Use only facts from the SOURCE. Do not add information."
+Each transform prompt has a `## <Style> style rules` section; the checker prompt receives only
+the chosen style's section (via `load_prompt` / `style_rules` in `agents/prompts/__init__.py`),
+so it never judges a lesson by another style's rules.
+Focus hooks may only restate a SOURCE fact; Literal chunks use "What it is" / "How it works"
+sections, plus "Example" only when the SOURCE gives one, and keep the SOURCE's wording for vague
+quantities (never invent numbers); quiz answers must be stated in the chunk and the other options
+clearly wrong according to it. No transform may add concluding sentences about importance, value
+or effects the SOURCE does not state. Glossary meanings (all styles) may use plain, accurate
+everyday definitions but must not add facts about the lesson topic.
 
 ### 6.6 LLM usage (`llm/`)
 
 - One factory creates the chat model from settings (`LLM_MODEL`, low temperature, e.g. 0.2).
 - All nodes use **structured outputs** (`with_structured_output(PydanticModel)`), so responses are validated models, not free text.
 - Tests inject a **fake LLM** that returns fixed models, so unit tests are fast, free and offline.
+- `agents/graph.py`: `build_graph(llm, settings=None)` compiles the graph (the LLM is injected;
+  settings default to `get_settings()`); `build_lesson(state, student, urdu)` turns the final state
+  into a `Lesson`. `scripts/try_agent.py <file> <mode|all>` runs the real agent from the command line (`all` runs
+  the three modes in parallel).
 
 ## 7. API (`/api/v1`)
 

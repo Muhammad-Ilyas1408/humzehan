@@ -36,3 +36,6 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# --- Local test files ---
+backend/sample.txt

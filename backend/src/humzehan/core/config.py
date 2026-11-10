@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     openai_api_key: SecretStr = SecretStr("")
     llm_model: str = "gpt-4o-mini"
-    agent_max_loops: int = 3
+    agent_max_loops: int = 2
     database_path: Path = Path("humzehan.db")
 
     @field_validator("cors_origins", mode="before")
