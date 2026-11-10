@@ -10,3 +10,7 @@ AI study companion that rewrites study material into a learning style the studen
 - The agent must never add facts that are not in the source.
 - After each task run: uv run ruff check . ; uv run mypy src ; uv run pytest — and fix failures.
 - Do only what I ask in each prompt, then stop and tell me how to check it.
+
+## Before starting any task
+Read docs/PRD.md and docs/architecture.md. Build only the feature you are asked for.
+If you change the design, update docs/architecture.md in the same change.
