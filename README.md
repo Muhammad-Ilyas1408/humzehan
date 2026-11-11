@@ -9,7 +9,7 @@ HumZehan is an agentic AI study companion. Give it any textbook page (as text or
 ## What it will do
 
 - **Three learning styles you choose:**
-  - **Focus:** short chunks, one step at a time, with a "why this matters" hook.
+  - **Focus:** short chunks, one step at a time, with a "key idea" hook that restates a fact from the page.
   - **Easy-read:** short sentences, simple words, and read-aloud audio.
   - **Literal:** clear, exact language with a fixed structure and idioms explained.
 - **Simple Urdu:** optional Urdu version of any lesson.

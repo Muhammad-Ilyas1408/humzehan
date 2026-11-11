@@ -37,7 +37,9 @@ class QuizItem(BaseModel):
 class Chunk(BaseModel):
     heading: str
     body: str = Field(description="Markdown")
-    hook: str | None = Field(default=None, description='Focus mode: "why this matters"')
+    hook: str | None = Field(
+        default=None, description='Focus mode: the "key idea", restating a source fact'
+    )
     glossary: list[GlossaryItem] = Field(default_factory=list)
     quiz: list[QuizItem] = Field(default_factory=list, max_length=3)
 

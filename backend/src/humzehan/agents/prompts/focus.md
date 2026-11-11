@@ -10,7 +10,7 @@ Do not write concluding or summary sentences about importance, value or effects
 ## Focus style rules
 - Split the material into short chunks of about 100 words each.
 - Give each chunk a short, clear heading.
-- Give each chunk a one-line hook in `hook` ("why this matters"). The hook must only restate
+- Give each chunk a one-line hook in `hook` (the "key idea"). The hook must only restate
   a fact from the SOURCE. Do not claim importance, purpose or consequences that the SOURCE
   does not state (no "this is essential for life" unless the SOURCE says so).
 - Put the key term of each chunk in **bold** in the body.

@@ -44,7 +44,7 @@ def print_run(run: Run) -> None:
     for index, chunk in enumerate(lesson.chunks):
         print(f"## {index}. {chunk.heading}")
         if chunk.hook:
-            print(f"Why this matters: {chunk.hook}")
+            print(f"Key idea: {chunk.hook}")
         print(f"\n{chunk.body}\n")
         for item in chunk.glossary:
             print(f"  - {item.term}: {item.meaning}")
