@@ -42,7 +42,9 @@ class ChunkDraft(BaseModel):
 
     heading: str
     body: str = Field(description="Markdown body of the chunk")
-    hook: str | None = Field(description='One-line "why this matters" (Focus only), else null')
+    hook: str | None = Field(
+        description='One-line "key idea" that only restates a SOURCE fact (Focus only), else null'
+    )
     glossary: list[GlossaryItem]
 
     def to_chunk(self) -> Chunk:

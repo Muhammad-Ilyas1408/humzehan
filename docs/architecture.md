@@ -21,7 +21,7 @@ FastAPI backend  ──►  services  ──►  LangGraph agent  ──►  LLM
 | Backend | Python 3.12, FastAPI, uv | Versioned REST API, runs the agent, stores data |
 | Agent | LangGraph, LangChain OpenAI | Multi-step rewrite → quiz → self-check loop |
 | Storage | SQLite | Lessons and quiz progress |
-| Quality | Ruff, mypy (strict), pytest, ESLint, GitHub Actions | Checks on every pull request |
+| Quality | Ruff, mypy (strict), pytest, ESLint, Vitest, GitHub Actions | Checks on every pull request |
 
 ## 2. Repository layout
 
@@ -48,12 +48,13 @@ humzehan/
 │       ├── unit/           # fast, no network (fake LLM)
 │       └── integration/    # API-level tests
 └── frontend/
+    ├── package.json, vitest.config.mts, .env.example
     └── src/
-        ├── app/            # routes: page.tsx, dashboard/page.tsx
-        ├── features/       # lessons/, dashboard/
-        ├── components/ui/  # shared primitives
-        ├── lib/            # api client, config
-        └── types/          # API types mirroring backend schemas
+        ├── app/            # routes: page.tsx (study page); dashboard/page.tsx in F7
+        ├── features/
+        │   └── lessons/    # modes.ts, components/ (study page UI), lib/ (pure helpers + tests)
+        ├── lib/            # api.ts (typed API client), config.ts
+        └── types/          # api.ts: API types mirroring backend schemas
 ```
 
 ## 3. Backend layers
@@ -116,7 +117,7 @@ class QuizItem(BaseModel):
 class Chunk(BaseModel):
     heading: str
     body: str                     # Markdown
-    hook: str | None              # Focus mode: "why this matters"
+    hook: str | None              # Focus mode: the "key idea"
     glossary: list[GlossaryItem]
     quiz: list[QuizItem]          # 3 per chunk
 
@@ -317,23 +318,66 @@ and the average of the **latest** score per chunk (`null` when there are no scor
 
 Storing the full lesson as JSON keeps v1 simple; the repository layer allows moving to PostgreSQL later without touching services.
 
-## 9. Testing strategy
+## 9. Frontend (`frontend/`)
+
+Next.js (App Router) + TypeScript + Tailwind CSS. The study page (`app/page.tsx`) is a server
+page that renders one client component, `features/lessons/components/StudyPage.tsx`.
+
+**API client** (`lib/api.ts`): `createLesson()` (multipart `POST /lessons`) and
+`recordProgress()` (JSON `POST /progress`), typed with `types/api.ts`. The base URL is
+`NEXT_PUBLIC_API_URL` (default `http://localhost:8000`, see `frontend/.env.example`). Errors become
+an `ApiError` whose message is the backend's `detail` (string, or the first message of a 422
+list); a network failure gives a friendly "couldn't reach the server" message.
+
+**Study page states:** `idle → loading → ready | error`.
+- *Form:* student name (remembered in `localStorage`, all access in try/catch), study text with a
+  character counter (`MAX_SOURCE_CHARS` = 8000, mirrored in `lib/config.ts`), learning-style
+  radio cards, Transform button.
+- *Loading:* the API answers only when the lesson is finished, so the page lists the pipeline
+  steps with an elapsed-time counter; no step is marked done and no checker decision is shown.
+- *Ready:* a collapsible **Agent trace** (`<details>`) with the real `trace` (node, note, ms,
+  total), then the lesson. Chunk bodies are rendered as Markdown with `react-markdown`
+  (raw HTML is not rendered). Every style shows a chunk's glossary under it when it is not
+  empty.
+- *Error:* the message plus "Try again"; the form keeps its input.
+
+**Per-style display:**
+
+| Style | Display |
+| --- | --- |
+| Focus | Hook ("Key idea") at the top of each chunk, a tick box per chunk, sticky progress bar of chunks done |
+| Easy-read | Lexend font (`next/font/google`), larger text, line height 1.8, cream background |
+| Literal | Body split into "What it is / How it works / Example" sections on bold-only lines (`splitLiteralSections`) |
+
+**Quiz:** 3 questions per chunk; Check reveals correct and incorrect answers and the score
+(0–3), which is sent once per chunk with `recordProgress()`. If saving fails, the result stays
+visible with a "Retry saving" button.
+
+**Accessibility:** native form controls (radio groups in `fieldset`/`legend`, labels on every
+input), visible focus ring, touch targets at least 44px, single column on phones, the only
+animation is a slow pulse that stops under `prefers-reduced-motion`.
+
+**Tests:** Vitest (`npm test`) for pure helpers in `features/lessons/lib/` and `lib/api.ts`
+(quiz scoring, character limit, Literal sections, error messages).
+
+## 10. Testing strategy
 
 | Level | What | Tools |
 | --- | --- | --- |
 | Unit | Each agent node, router and loop logic, schemas | pytest + fake LLM |
 | Integration | Each endpoint with a temporary SQLite file and the fake-LLM graph | pytest + FastAPI `TestClient` |
 | Evals (F8) | Real pages through the real model; quality scores | `evals/run.py` |
-| CI | Ruff, mypy, pytest; ESLint, type-check, build | GitHub Actions on every PR |
+| Frontend unit | Pure helpers (quiz scoring, character limit, Literal sections, API errors) | Vitest |
+| CI | Ruff, mypy, pytest; ESLint, type-check, Vitest, build | GitHub Actions on every PR |
 
-## 10. Observability, security and privacy
+## 11. Observability, security and privacy
 
 - **Logging:** standard logging via `core/logging.py`; never log students' raw text in production.
 - **Tracing (F8):** LangSmith or Langfuse, enabled by environment variables.
 - **Limits (F9):** maximum text length and image size; rate limiting per client; API spending cap.
 - **Privacy:** no diagnosis or health data is collected; only names, chosen style, lessons and scores.
 
-## 11. Deployment (F9)
+## 12. Deployment (F9)
 
 | Part | Platform |
 | --- | --- |
@@ -341,7 +385,7 @@ Storing the full lesson as JSON keeps v1 simple; the repository layer allows mov
 | Backend | Railway or Render, from a Dockerfile in `backend/` |
 | Database | SQLite on a persistent volume |
 
-## 12. Key decisions
+## 13. Key decisions
 
 | Decision | Reason |
 | --- | --- |

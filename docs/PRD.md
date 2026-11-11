@@ -56,7 +56,7 @@ Teachers rarely have time to adapt every lesson for every student.
 
 | Style | Rules |
 | --- | --- |
-| **Focus** | Chunks of about 100 words; a one-line "why this matters" hook; the key term in bold; a tick box per chunk |
+| **Focus** | Chunks of about 100 words; a one-line "key idea" hook that restates a source fact; the key term in bold; a tick box per chunk |
 | **Easy-read** | Sentences under 12 words; everyday words; one idea per sentence; a mini glossary per chunk; readability font; read-aloud |
 | **Literal** | No idioms or metaphors (any in the source are explained); inside each chunk: What it is / How it works, plus Example only when the source gives one; keep the source's wording when it is vague, never invent numbers |
 | **Simple Urdu** (optional, combines with any style) | Everyday Urdu in Urdu script; science terms kept in English brackets |
