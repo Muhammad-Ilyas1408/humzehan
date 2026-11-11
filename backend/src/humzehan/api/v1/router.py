@@ -2,7 +2,10 @@
 
 from fastapi import APIRouter
 
-from humzehan.api.v1 import health
+from humzehan.api.v1 import dashboard, health, lessons, progress
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
+api_router.include_router(lessons.router)
+api_router.include_router(progress.router)
+api_router.include_router(dashboard.router)

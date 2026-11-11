@@ -1,10 +1,9 @@
 """Checker node: one call over the whole lesson, with the whole-lesson missing-fact rule."""
 
+from fakes import FakeLLM
 from humzehan.agents.nodes import make_checker_node
 from humzehan.agents.state import AgentState, CheckerOutput, ChunkReview
 from humzehan.schemas.lesson import Chunk, GlossaryItem, LearningMode
-
-from .fakes import FakeLLM
 
 SOURCE = "Plants make food from sunlight. Leaves hold chlorophyll. Oxygen is released."
 CHUNKS = [

@@ -2,6 +2,7 @@
 
 import pytest
 
+from fakes import FakeLLM
 from humzehan.agents.nodes import make_checker_node
 from humzehan.agents.state import AgentState, CheckerOutput, ChunkReview, SuspectJudgment
 from humzehan.agents.verification import (
@@ -15,8 +16,6 @@ from humzehan.agents.verification import (
     stem,
 )
 from humzehan.schemas.lesson import Chunk, GlossaryItem, LearningMode
-
-from .fakes import FakeLLM
 
 # Sample-like source text (same style as backend/sample.txt).
 SOURCE = (

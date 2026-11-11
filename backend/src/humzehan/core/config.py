@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     agent_max_loops: int = 2
     database_path: Path = Path("humzehan.db")
+    max_source_chars: int = Field(default=8000, gt=0)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
