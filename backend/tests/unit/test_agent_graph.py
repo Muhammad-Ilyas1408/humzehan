@@ -6,6 +6,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel
 
+from fakes import FakeLLM
 from humzehan.agents.graph import build_graph, build_lesson
 from humzehan.agents.state import (
     AgentState,
@@ -18,8 +19,6 @@ from humzehan.agents.state import (
 )
 from humzehan.core.config import Settings
 from humzehan.schemas.lesson import LearningMode, QuizItem
-
-from .fakes import FakeLLM
 
 STYLE_NAMES = {"focus": "Focus", "easyread": "Easy-read", "literal": "Literal"}
 SOURCE = "Plants make food from sunlight. This is called photosynthesis. Leaves hold chlorophyll."

@@ -2,7 +2,7 @@
 
 How HumZehan is built. Product requirements are in [`PRD.md`](PRD.md). Update this file in the same pull request whenever the design changes.
 
-_Last updated: 2026-11-10_
+_Last updated: 2026-11-11_
 
 ## 1. System overview
 
@@ -34,14 +34,17 @@ humzehan/
 │   ├── pyproject.toml, uv.lock, .env.example
 │   ├── src/humzehan/
 │   │   ├── main.py         # create_app() factory
-│   │   ├── core/           # config.py (Settings), logging.py
+│   │   ├── core/           # config.py (Settings), logging.py, exceptions.py (domain errors)
+│   │   ├── api/            # deps.py (FastAPI dependencies: settings, agent graph, services)
 │   │   ├── api/v1/         # router.py + one module per resource (health.py, lessons.py, ...)
 │   │   ├── schemas/        # Pydantic models: the API contract
 │   │   ├── services/       # business logic
 │   │   ├── agents/         # LangGraph: state.py, graph.py, nodes/, prompts/
 │   │   ├── llm/            # LLM client factory
-│   │   └── db/             # SQLite connection + repositories
+│   │   └── db/             # session.py (connect, init_db) + repositories.py
 │   └── tests/
+│       ├── conftest.py     # temp SQLite file per test; agent graph on the fake LLM
+│       ├── fakes.py        # FakeLLM + make_lesson_llm(), shared by unit and integration tests
 │       ├── unit/           # fast, no network (fake LLM)
 │       └── integration/    # API-level tests
 └── frontend/
@@ -66,6 +69,20 @@ Rules:
 - **Agents** never touch the database or HTTP.
 - **Repositories** are the only code that writes SQL.
 - **Settings** come only from `core/config.py` (`get_settings()`); secrets only from `.env`.
+- **Errors:** services raise domain exceptions from `core/exceptions.py` (`InvalidInputError`,
+  `NotFoundError`, `LLMFailureError`); `main.py` maps them to 400 / 404 / 502 with `{"detail": ...}`.
+
+Wiring (`api/deps.py`):
+- `create_app(settings)` stores the settings on `app.state`; `get_app_settings` reads them back,
+  so tests' settings reach every dependency.
+- `get_agent_graph` builds the graph once with `get_chat_model(settings)`, lazily on first use, and
+  caches it on `app.state` (behind a lock). Tests override it via `app.dependency_overrides` with a
+  graph on the fake LLM, so no OpenAI client is ever built in tests.
+- `get_*_service` dependencies build the repositories and services; routes receive a service only.
+- The agent call is blocking: `POST /lessons` runs `LessonService.create` with
+  `run_in_threadpool`; other routes are plain `def` (FastAPI runs them in its threadpool).
+- Repositories open a short-lived SQLite connection per operation, so no connection is shared
+  between threads.
 
 ## 4. Configuration
 
@@ -80,6 +97,7 @@ Loaded from environment variables / `backend/.env` by `core/config.py`.
 | `LLM_MODEL` | `gpt-4o-mini` | Model used by all agent nodes |
 | `AGENT_MAX_LOOPS` | `2` | Maximum rewrite rounds sent back by the checker |
 | `DATABASE_PATH` | `humzehan.db` | SQLite file location |
+| `MAX_SOURCE_CHARS` | `8000` | Maximum source text length (characters); longer → 400 |
 
 ## 5. Data models (`schemas/`)
 
@@ -261,11 +279,18 @@ everyday definitions but must not add facts about the lesson topic.
 | GET | `/dashboard` | — | `DashboardSummary` |
 
 Errors return `{"detail": "<message>"}` with a suitable status code (400 bad input, 404 not found, 502 LLM failure).
+Request bodies that fail schema validation (unknown `mode`, `score` outside 0–3, negative
+`chunk_index`, missing fields) get FastAPI's standard `422` (`detail` is a list of errors).
+
+F2 implements the endpoints for text input only: `POST /lessons` takes `student`, `mode`, `text`
+(`urdu` arrives with F5, `image` with F4). 400 for: blank student, empty text, text longer than
+`MAX_SOURCE_CHARS`, `chunk_index` beyond the lesson's chunks. 404 for an unknown lesson id
+(GET lesson or progress).
 
 ## 8. Database (SQLite)
 
 ```sql
-CREATE TABLE lessons (
+CREATE TABLE IF NOT EXISTS lessons (
     id          TEXT PRIMARY KEY,
     student     TEXT NOT NULL,
     mode        TEXT NOT NULL,
@@ -274,7 +299,7 @@ CREATE TABLE lessons (
     created_at  TEXT NOT NULL
 );
 
-CREATE TABLE progress (
+CREATE TABLE IF NOT EXISTS progress (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     lesson_id    TEXT NOT NULL REFERENCES lessons(id),
     chunk_index  INTEGER NOT NULL,
@@ -282,8 +307,13 @@ CREATE TABLE progress (
     created_at   TEXT NOT NULL
 );
 
-CREATE INDEX idx_lessons_student ON lessons(student);
+CREATE INDEX IF NOT EXISTS idx_lessons_student ON lessons(student);
 ```
+
+`db/session.py` creates the schema at app startup (FastAPI lifespan) from `DATABASE_PATH`.
+`progress` keeps every attempt. The dashboard (`ProgressRepository.summary_by_student()`, one query)
+counts per student: lessons, chunks completed (distinct `(lesson_id, chunk_index)` with a score)
+and the average of the **latest** score per chunk (`null` when there are no scores).
 
 Storing the full lesson as JSON keeps v1 simple; the repository layer allows moving to PostgreSQL later without touching services.
 
@@ -292,7 +322,7 @@ Storing the full lesson as JSON keeps v1 simple; the repository layer allows mov
 | Level | What | Tools |
 | --- | --- | --- |
 | Unit | Each agent node, router and loop logic, schemas | pytest + fake LLM |
-| Integration | Each endpoint with a temporary SQLite file | pytest + FastAPI `TestClient` |
+| Integration | Each endpoint with a temporary SQLite file and the fake-LLM graph | pytest + FastAPI `TestClient` |
 | Evals (F8) | Real pages through the real model; quality scores | `evals/run.py` |
 | CI | Ruff, mypy, pytest; ESLint, type-check, build | GitHub Actions on every PR |
 

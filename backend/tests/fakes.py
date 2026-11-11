@@ -1,4 +1,4 @@
-"""A fake chat model for unit tests: no network, fixed structured responses."""
+"""A fake chat model for tests: no network, fixed structured responses."""
 
 import threading
 from collections.abc import Callable, Sequence
@@ -11,6 +11,9 @@ from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
+from humzehan.agents.state import CheckerOutput, ChunkDraft, QuizSet, TransformOutput
+from humzehan.schemas.lesson import QuizItem
 
 Handler = Callable[[str], BaseModel]
 
@@ -88,3 +91,35 @@ class FakeLLM(BaseChatModel):
 
     def batch_sizes(self, schema: type[BaseModel]) -> list[int]:
         return [size for s, size in self.batches if s is schema]
+
+
+def _transform_output(_: str) -> TransformOutput:
+    return TransformOutput(
+        title="Photosynthesis",
+        chunks=[
+            ChunkDraft(heading="Food from light", body="Plants make food.", hook=None, glossary=[]),
+            ChunkDraft(heading="Leaves", body="Leaves hold chlorophyll.", hook=None, glossary=[]),
+        ],
+    )
+
+
+def _quiz_set(_: str) -> QuizSet:
+    item = QuizItem(
+        question="What do plants make?", options=["Food", "Rocks", "Air"], answer_index=0
+    )
+    return QuizSet(questions=[item, item, item])
+
+
+def _approve_all(_: str) -> CheckerOutput:
+    return CheckerOutput(reviews=[], suspect_judgments=[])  # missing reviews count as approve
+
+
+def make_lesson_llm() -> FakeLLM:
+    """A FakeLLM that produces a 2-chunk lesson ("Photosynthesis") approved on the first check."""
+    return FakeLLM(
+        handlers={
+            TransformOutput: _transform_output,
+            QuizSet: _quiz_set,
+            CheckerOutput: _approve_all,
+        }
+    )

@@ -1,10 +1,9 @@
 """Quiz node: questions for all chunks that need them, generated in one parallel batch."""
 
+from fakes import FakeLLM
 from humzehan.agents.nodes import make_quiz_node
 from humzehan.agents.state import AgentState, QuizSet
 from humzehan.schemas.lesson import Chunk, LearningMode, QuizItem
-
-from .fakes import FakeLLM
 
 
 def quiz_for(user: str) -> QuizSet:
