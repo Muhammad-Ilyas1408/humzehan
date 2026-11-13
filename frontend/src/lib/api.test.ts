@@ -1,5 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { errorMessageFromBody } from "./api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createLesson, errorMessageFromBody } from "./api";
+
+describe("createLesson", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])("sends the urdu field (%s) with the form", async (urdu) => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ lesson_id: "l1" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createLesson({ student: "Ali", mode: "focus", text: "Plants make food.", urdu });
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const form = init.body as FormData;
+    expect(form.get("urdu")).toBe(String(urdu));
+    expect(form.get("mode")).toBe("focus");
+  });
+});
 
 describe("errorMessageFromBody", () => {
   it("returns a string detail as is", () => {

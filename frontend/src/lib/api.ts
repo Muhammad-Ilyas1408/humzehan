@@ -60,6 +60,7 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
   form.set("student", input.student);
   form.set("mode", input.mode);
   form.set("text", input.text);
+  form.set("urdu", String(input.urdu));
   const response = await request("/lessons", { method: "POST", body: form });
   return (await response.json()) as Lesson;
 }

@@ -18,7 +18,7 @@ class LessonService:
         self._graph = graph
         self._max_source_chars = max_source_chars
 
-    def create(self, student: str, mode: LearningMode, text: str) -> Lesson:
+    def create(self, student: str, mode: LearningMode, text: str, urdu: bool = False) -> Lesson:
         """Run the agent on ``text`` and save the resulting lesson. Blocking: call from a thread."""
         student = student.strip()
         text = text.strip()
@@ -35,7 +35,7 @@ class LessonService:
         try:
             state = cast(
                 AgentState,
-                self._graph.invoke({"source_text": text, "mode": mode, "urdu": False, "trace": []}),
+                self._graph.invoke({"source_text": text, "mode": mode, "urdu": urdu, "trace": []}),
             )
         except Exception as exc:
             logger.exception("Agent failed to create a lesson (mode=%s)", mode.value)

@@ -4,7 +4,14 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from humzehan.schemas.lesson import Chunk, GlossaryItem, LearningMode, QuizItem, TraceStep
+from humzehan.schemas.lesson import (
+    Chunk,
+    EnglishVersion,
+    GlossaryItem,
+    LearningMode,
+    QuizItem,
+    TraceStep,
+)
 
 CheckerAction = Literal["approve", "simplify", "add_glossary", "fix_fact", "missing_fact"]
 
@@ -25,9 +32,10 @@ class ChunkReview(BaseModel):
 class AgentState(TypedDict, total=False):
     source_text: str
     mode: LearningMode
-    urdu: bool  # F5
+    urdu: bool  # F5: translate the approved lesson after the checker
     title: str
     chunks: list[Chunk]
+    english: EnglishVersion | None  # set by the urdu node when the translation succeeds
     reviews: list[ChunkReview]
     loops: int  # number of rewrite rounds done
     trace: list[TraceStep]
@@ -72,3 +80,28 @@ class CheckerOutput(BaseModel):
     suspect_judgments: list[SuspectJudgment] = Field(
         description="One judgment per SUSPECT SENTENCE id; empty list if there are none"
     )
+
+
+class ChunkTranslation(BaseModel):
+    """One chunk translated into simple Urdu, with the same structure as the English chunk."""
+
+    heading: str
+    body: str = Field(description="Markdown body in Urdu")
+    hook: str | None = Field(description="Translated hook, or null if the English hook is null")
+    glossary: list[GlossaryItem] = Field(description="Same items, in the same order")
+    quiz: list[QuizItem] = Field(
+        description="Same questions; options in the same order; answer_index unchanged"
+    )
+
+    def to_chunk(self) -> Chunk:
+        return Chunk(
+            heading=self.heading,
+            body=self.body,
+            hook=self.hook,
+            glossary=self.glossary,
+            quiz=self.quiz,
+        )
+
+
+class TitleTranslation(BaseModel):
+    title: str

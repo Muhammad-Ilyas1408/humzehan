@@ -3,6 +3,8 @@
 import { useId, useRef, useState } from "react";
 import { ApiError, recordProgress } from "@/lib/api";
 import type { QuizItem } from "@/types/api";
+import { isolateLtr } from "../lib/bidi";
+import type { LessonLabels, LessonLang } from "../lib/labels";
 import { allAnswered, scoreQuiz, type QuizAnswers } from "../lib/quiz";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -11,10 +13,15 @@ interface ChunkQuizProps {
   lessonId: string;
   chunkIndex: number;
   quiz: QuizItem[];
+  lang: LessonLang;
+  labels: LessonLabels;
 }
 
-export function ChunkQuiz({ lessonId, chunkIndex, quiz }: ChunkQuizProps) {
+/** Answers are kept by position, so switching between the Urdu and English version of the same
+ * quiz (same options in the same order) keeps the student's choices and result. */
+export function ChunkQuiz({ lessonId, chunkIndex, quiz, lang, labels }: ChunkQuizProps) {
   const id = useId();
+  const text = lang === "ur" ? isolateLtr : (s: string) => s;
   const [answers, setAnswers] = useState<QuizAnswers>(() => quiz.map(() => null));
   const [checked, setChecked] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -50,13 +57,13 @@ export function ChunkQuiz({ lessonId, chunkIndex, quiz }: ChunkQuizProps) {
   return (
     <section aria-labelledby={`${id}-title`} className="mt-6 border-t border-border pt-5">
       <h4 id={`${id}-title`} className="text-lg font-semibold">
-        Quick quiz
+        {labels.quickQuiz}
       </h4>
       <div className="mt-3 flex flex-col gap-5">
         {quiz.map((item, qi) => (
           <fieldset key={qi} disabled={checked} className="flex flex-col gap-2">
             <legend className="mb-2 font-semibold">
-              {qi + 1}. {item.question}
+              {qi + 1}. {text(item.question)}
             </legend>
             {item.options.map((option, oi) => {
               const chosen = answers[qi] === oi;
@@ -65,10 +72,10 @@ export function ChunkQuiz({ lessonId, chunkIndex, quiz }: ChunkQuizProps) {
               let tag = "";
               if (checked && correct) {
                 tone = "border-success bg-success-soft";
-                tag = chosen ? "Correct — your answer" : "Correct answer";
+                tag = chosen ? labels.correctYourAnswer : labels.correctAnswer;
               } else if (checked && chosen) {
                 tone = "border-danger bg-danger-soft";
-                tag = "Your answer — not correct";
+                tag = labels.wrongYourAnswer;
               }
               return (
                 <label
@@ -86,7 +93,7 @@ export function ChunkQuiz({ lessonId, chunkIndex, quiz }: ChunkQuizProps) {
                     }
                     className="h-5 w-5 shrink-0 accent-accent focus-visible:outline-none"
                   />
-                  <span className="flex-1">{option}</span>
+                  <span className="flex-1">{text(option)}</span>
                   {tag && (
                     <span
                       className={`text-sm font-semibold ${correct ? "text-success" : "text-danger"}`}
@@ -108,17 +115,31 @@ export function ChunkQuiz({ lessonId, chunkIndex, quiz }: ChunkQuizProps) {
           disabled={!allAnswered(quiz, answers)}
           className="mt-5 min-h-12 rounded-lg bg-accent px-6 font-semibold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Check answers
+          {labels.checkAnswers}
         </button>
       ) : (
         <div className="mt-5 flex flex-col gap-2" aria-live="polite">
           <p className="text-lg font-semibold">
-            Score: {score} / {quiz.length}
+            {labels.scoreLine(score, quiz.length)}
           </p>
-          {saveState === "saving" && <p className="text-sm text-muted">Saving your score…</p>}
-          {saveState === "saved" && <p className="text-sm text-success">Score saved.</p>}
+          {/* Save status stays English (only lesson labels are translated). */}
+          {saveState === "saving" && (
+            <p lang="en" dir="ltr" className="text-sm text-muted">
+              Saving your score…
+            </p>
+          )}
+          {saveState === "saved" && (
+            <p lang="en" dir="ltr" className="text-sm text-success">
+              Score saved.
+            </p>
+          )}
           {saveState === "error" && (
-            <div role="alert" className="rounded-lg border border-danger bg-danger-soft p-3">
+            <div
+              role="alert"
+              lang="en"
+              dir="ltr"
+              className="rounded-lg border border-danger bg-danger-soft p-3"
+            >
               <p className="text-sm">
                 <span className="font-semibold text-danger">Your score wasn’t saved.</span>{" "}
                 {saveError}

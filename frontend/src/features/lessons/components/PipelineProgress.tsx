@@ -10,9 +10,11 @@ const STEPS = [
   "Writing quiz questions",
   "Checking the lesson against your text",
 ];
+const URDU_STEP = "Translating the checked lesson into simple Urdu";
 
-export function PipelineProgress() {
+export function PipelineProgress({ urdu = false }: { urdu?: boolean }) {
   const [seconds, setSeconds] = useState(0);
+  const steps = urdu ? [...STEPS, URDU_STEP] : STEPS;
 
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((s) => s + 1), 1000);
@@ -34,7 +36,7 @@ export function PipelineProgress() {
         This usually takes under 30 seconds. The agent works through these steps:
       </p>
       <ol className="mt-4 flex flex-col gap-2">
-        {STEPS.map((step, i) => (
+        {steps.map((step, i) => (
           <li key={step} className="flex items-center gap-3">
             <span
               aria-hidden="true"

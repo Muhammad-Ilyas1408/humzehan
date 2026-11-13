@@ -5,12 +5,14 @@ from humzehan.agents.nodes.ingest import ingest
 from humzehan.agents.nodes.quiz import make_quiz_node
 from humzehan.agents.nodes.router import route_by_mode, router
 from humzehan.agents.nodes.transform import make_transform_node
+from humzehan.agents.nodes.urdu import make_urdu_node
 
 __all__ = [
     "ingest",
     "make_checker_node",
     "make_quiz_node",
     "make_transform_node",
+    "make_urdu_node",
     "route_by_mode",
     "router",
 ]

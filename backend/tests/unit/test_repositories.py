@@ -10,7 +10,15 @@ import pytest
 from humzehan.db.repositories import LessonRepository, ProgressRepository
 from humzehan.db.session import connect, init_db
 from humzehan.schemas.dashboard import StudentSummary
-from humzehan.schemas.lesson import Chunk, GlossaryItem, LearningMode, Lesson, QuizItem, TraceStep
+from humzehan.schemas.lesson import (
+    Chunk,
+    EnglishVersion,
+    GlossaryItem,
+    LearningMode,
+    Lesson,
+    QuizItem,
+    TraceStep,
+)
 
 
 @pytest.fixture
@@ -50,6 +58,35 @@ def test_lesson_round_trip(db_path: Path) -> None:
     repo.save(lesson)
 
     assert repo.get("l1") == lesson
+
+
+def test_urdu_lesson_round_trip_keeps_english(db_path: Path) -> None:
+    repo = LessonRepository(db_path)
+    english = make_lesson("en", "Ali")
+    lesson = make_lesson("l1", "Ali").model_copy(
+        update={
+            "urdu": True,
+            "title": "ضیائی تالیف (photosynthesis)",
+            "english": EnglishVersion(title=english.title, chunks=english.chunks),
+        }
+    )
+
+    repo.save(lesson)
+
+    assert repo.get("l1") == lesson
+
+
+def test_old_payload_without_english_still_loads(db_path: Path) -> None:
+    lesson = make_lesson("l1", "Ali")
+    LessonRepository(db_path).save(lesson)
+    old_payload = lesson.model_dump_json(exclude={"english"})  # stored before F5
+    with closing(connect(db_path)) as conn, conn:
+        conn.execute("UPDATE lessons SET payload = ? WHERE id = 'l1'", (old_payload,))
+
+    loaded = LessonRepository(db_path).get("l1")
+
+    assert loaded is not None
+    assert loaded.english is None
 
 
 def test_lesson_columns_are_filled(db_path: Path) -> None:

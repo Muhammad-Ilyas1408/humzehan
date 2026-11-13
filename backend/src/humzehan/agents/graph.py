@@ -1,8 +1,10 @@
 """Wire the agent nodes into a LangGraph graph.
 
 ingest -> router -> {focus|easyread|literal}_transform -> quiz -> checker
-checker -> END when all chunks are approved or after ``agent_max_loops`` rewrite rounds,
-otherwise back to the mode's transform node (which rewrites only non-approved chunks).
+checker -> back to the mode's transform node (which rewrites only non-approved chunks) while
+chunks are not approved and fewer than ``agent_max_loops`` rewrite rounds were done; otherwise
+-> urdu (only when ``urdu`` is set) -> END. The whole pipeline is checked in English; the
+translation runs last because the checker cannot verify Urdu against the English SOURCE.
 """
 
 import uuid
@@ -17,6 +19,7 @@ from humzehan.agents.nodes import (
     make_checker_node,
     make_quiz_node,
     make_transform_node,
+    make_urdu_node,
     route_by_mode,
     router,
 )
@@ -27,14 +30,16 @@ from humzehan.schemas.lesson import LearningMode, Lesson
 
 AgentGraph = CompiledStateGraph[AgentState, None, AgentState, AgentState]
 
+URDU_NODE = "urdu"
+
 
 def after_checker(state: AgentState, max_loops: int) -> str:
     """Decide where to go after the checker."""
-    if all(review.action == "approve" for review in state.get("reviews", [])):
-        return END
-    if state.get("loops", 0) >= max_loops:
-        return END  # keep the latest version
-    return route_by_mode(state)
+    finished = all(review.action == "approve" for review in state.get("reviews", []))
+    if not finished and state.get("loops", 0) < max_loops:
+        return route_by_mode(state)
+    # Approved, or out of rewrite rounds (keep the latest version).
+    return URDU_NODE if state.get("urdu", False) else END
 
 
 def build_graph(llm: BaseChatModel, settings: Settings | None = None) -> AgentGraph:
@@ -49,6 +54,7 @@ def build_graph(llm: BaseChatModel, settings: Settings | None = None) -> AgentGr
         graph.add_node(node_name, make_transform_node(llm, mode))
     graph.add_node("quiz", make_quiz_node(llm))
     graph.add_node("checker", make_checker_node(llm))
+    graph.add_node(URDU_NODE, make_urdu_node(llm))
 
     graph.add_edge(START, "ingest")
     graph.add_edge("ingest", "router")
@@ -59,20 +65,27 @@ def build_graph(llm: BaseChatModel, settings: Settings | None = None) -> AgentGr
     graph.add_conditional_edges(
         "checker",
         lambda state: after_checker(state, max_loops),
-        [*transform_names, END],
+        [*transform_names, URDU_NODE, END],
     )
+    graph.add_edge(URDU_NODE, END)
     return graph.compile()
 
 
-def build_lesson(state: AgentState, student: str, urdu: bool = False) -> Lesson:
-    """Turn a finished agent state into a Lesson."""
+def build_lesson(state: AgentState, student: str) -> Lesson:
+    """Turn a finished agent state into a Lesson.
+
+    The lesson is Urdu only when the urdu node translated it (``english`` is set); a requested
+    translation that failed validation leaves an English lesson.
+    """
+    english = state.get("english")
     return Lesson(
         lesson_id=str(uuid.uuid4()),
         student=student,
         mode=LearningMode(state["mode"]),
-        urdu=urdu,
+        urdu=english is not None,
         title=state["title"],
         chunks=state["chunks"],
+        english=english,
         trace=state["trace"],
         created_at=datetime.now(UTC),
     )

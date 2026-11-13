@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Lexend } from "next/font/google";
+import { Geist, Geist_Mono, Lexend, Noto_Nastaliq_Urdu } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,6 +18,13 @@ const lexend = Lexend({
   subsets: ["latin"],
 });
 
+// Urdu lessons (F5). Arabic-script subset only: English words inside Urdu text fall back to
+// the sans font, so they stay easy to read.
+const notoNastaliqUrdu = Noto_Nastaliq_Urdu({
+  variable: "--font-urdu-family",
+  subsets: ["arabic"],
+});
+
 export const metadata: Metadata = {
   title: "HumZehan — Study the way your mind works",
   description:
@@ -28,7 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${lexend.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${lexend.variable} ${notoNastaliqUrdu.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
