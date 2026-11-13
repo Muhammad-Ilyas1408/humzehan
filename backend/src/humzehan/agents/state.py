@@ -24,7 +24,6 @@ class ChunkReview(BaseModel):
 
 class AgentState(TypedDict, total=False):
     source_text: str
-    image_b64: str | None  # F4
     mode: LearningMode
     urdu: bool  # F5
     title: str

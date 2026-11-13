@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from fakes import FakeLLM, make_lesson_llm
+from fakes import FakeLLM, FakeVisionLLM, make_lesson_llm
 from humzehan.agents.graph import build_graph
-from humzehan.api.deps import get_agent_graph
+from humzehan.api.deps import get_agent_graph, get_vision_llm
 from humzehan.core.config import Settings
 from humzehan.main import create_app
 
@@ -26,10 +26,19 @@ def fake_llm() -> FakeLLM:
 
 
 @pytest.fixture
-def client(settings: Settings, fake_llm: FakeLLM) -> Iterator[TestClient]:
-    """A TestClient for a fresh app with test settings and an agent graph on the fake LLM."""
+def fake_vision_llm() -> FakeVisionLLM:
+    """The fake vision model behind POST /extract (reads "# Plants / Plants make food.")."""
+    return FakeVisionLLM()
+
+
+@pytest.fixture
+def client(
+    settings: Settings, fake_llm: FakeLLM, fake_vision_llm: FakeVisionLLM
+) -> Iterator[TestClient]:
+    """A TestClient for a fresh app with test settings and fake LLMs (agent graph and vision)."""
     app = create_app(settings)
     graph = build_graph(fake_llm, settings)
     app.dependency_overrides[get_agent_graph] = lambda: graph
+    app.dependency_overrides[get_vision_llm] = lambda: fake_vision_llm
     with TestClient(app) as test_client:
         yield test_client

@@ -1,4 +1,4 @@
-import type { CreateLessonInput, Lesson, ProgressCreate } from "@/types/api";
+import type { CreateLessonInput, ExtractResponse, Lesson, ProgressCreate } from "@/types/api";
 import { API_URL } from "./config";
 
 export const UNREACHABLE_MESSAGE =
@@ -71,4 +71,13 @@ export async function recordProgress(progress: ProgressCreate): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(progress),
   });
+}
+
+/** POST /api/v1/extract — reads the printed text from a photo of a page. */
+export async function extractText(image: File): Promise<string> {
+  const form = new FormData();
+  form.set("image", image);
+  const response = await request("/extract", { method: "POST", body: form });
+  const body = (await response.json()) as ExtractResponse;
+  return body.text;
 }
