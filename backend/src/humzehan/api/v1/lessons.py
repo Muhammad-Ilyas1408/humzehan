@@ -21,9 +21,11 @@ async def create_lesson(
     mode: Annotated[LearningMode, Form()],
     # Default "" so empty text reaches the service (400) instead of FastAPI's 422.
     text: Annotated[str, Form()] = "",
+    urdu: Annotated[bool, Form()] = False,
 ) -> Lesson:
-    """Rewrite the text in the chosen learning style. The agent runs in a worker thread."""
-    return await run_in_threadpool(service.create, student, mode, text)
+    """Rewrite the text in the chosen learning style (optionally translated into simple Urdu).
+    The agent runs in a worker thread."""
+    return await run_in_threadpool(service.create, student, mode, text, urdu)
 
 
 @router.get("/{lesson_id}", response_model=Lesson)

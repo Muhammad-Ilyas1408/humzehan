@@ -43,7 +43,7 @@ export function StudyPage() {
         <LessonForm busy={state.status === "loading"} onSubmit={(input) => void transform(input)} />
       </section>
 
-      {state.status === "loading" && <PipelineProgress />}
+      {state.status === "loading" && <PipelineProgress urdu={lastInput?.urdu ?? false} />}
 
       {state.status === "error" && (
         <ErrorBanner
@@ -54,6 +54,12 @@ export function StudyPage() {
 
       {state.status === "ready" && (
         <>
+          {lastInput?.urdu && !state.lesson.urdu && (
+            <p role="status" className="rounded-lg border border-border bg-surface p-4">
+              The Urdu translation wasn’t available, so this lesson is in English. See the agent
+              trace for details.
+            </p>
+          )}
           <AgentTrace trace={state.lesson.trace} />
           <LessonView key={state.lesson.lesson_id} lesson={state.lesson} />
         </>

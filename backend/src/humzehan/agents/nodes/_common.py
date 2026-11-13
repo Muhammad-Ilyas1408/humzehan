@@ -45,3 +45,24 @@ def ask_many[M: BaseModel](
     inputs: list[LanguageModelInput] = [[("system", system), ("human", user)] for user in users]
     results = llm.with_structured_output(schema).batch(inputs)
     return [_validated(schema, result) for result in results]
+
+
+def ask_many_or_errors[M: BaseModel](
+    llm: BaseChatModel, schema: type[M], system: str, users: list[str]
+) -> list[M | Exception]:
+    """Like ``ask_many``, but a failed call (provider error or invalid output) is returned as
+    its exception in that position instead of failing the whole batch."""
+    if not users:
+        return []
+    inputs: list[LanguageModelInput] = [[("system", system), ("human", user)] for user in users]
+    results = llm.with_structured_output(schema).batch(inputs, return_exceptions=True)
+    out: list[M | Exception] = []
+    for result in results:
+        if isinstance(result, Exception):
+            out.append(result)
+            continue
+        try:
+            out.append(_validated(schema, result))
+        except ValueError as exc:  # pydantic.ValidationError is a ValueError
+            out.append(exc)
+    return out

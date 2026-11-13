@@ -4,8 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from fakes import FakeLLM
-from humzehan.agents.state import TransformOutput
+from fakes import URDU, FakeLLM
+from humzehan.agents.state import ChunkTranslation, TransformOutput
 from humzehan.core.config import Settings
 
 SOURCE = "Plants make food from sunlight. Leaves hold chlorophyll."
@@ -32,6 +32,35 @@ def test_create_and_fetch_lesson(client: TestClient) -> None:
     fetched = client.get(f"/api/v1/lessons/{lesson['lesson_id']}")
     assert fetched.status_code == 200
     assert fetched.json() == lesson
+
+
+def test_lesson_without_urdu_field_is_english(client: TestClient, fake_llm: FakeLLM) -> None:
+    lesson = create(client).json()
+
+    assert lesson["urdu"] is False
+    assert lesson["english"] is None
+    assert fake_llm.calls_for(ChunkTranslation) == []
+    assert lesson["trace"][-1]["node"] == "checker"
+
+
+def test_create_urdu_lesson_keeps_english(client: TestClient) -> None:
+    response = create(client, urdu="true")
+
+    assert response.status_code == 201
+    lesson = response.json()
+    assert lesson["urdu"] is True
+    assert lesson["title"] == f"{URDU} Photosynthesis"
+    assert all(chunk["heading"].startswith(URDU) for chunk in lesson["chunks"])
+    assert lesson["english"]["title"] == "Photosynthesis"
+    assert [c["heading"] for c in lesson["english"]["chunks"]] == ["Food from light", "Leaves"]
+    assert lesson["trace"][-1]["node"] == "urdu"
+
+    fetched = client.get(f"/api/v1/lessons/{lesson['lesson_id']}")
+    assert fetched.json() == lesson  # stored JSON includes the English version
+
+
+def test_invalid_urdu_value_returns_422(client: TestClient) -> None:
+    assert create(client, urdu="maybe").status_code == 422
 
 
 def test_unknown_lesson_returns_404(client: TestClient) -> None:

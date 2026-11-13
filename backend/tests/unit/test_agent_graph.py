@@ -6,7 +6,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel
 
-from fakes import FakeLLM
+from fakes import URDU, FakeLLM, translate_chunk, translate_title
 from humzehan.agents.graph import build_graph, build_lesson
 from humzehan.agents.state import (
     AgentState,
@@ -14,7 +14,9 @@ from humzehan.agents.state import (
     CheckerOutput,
     ChunkDraft,
     ChunkReview,
+    ChunkTranslation,
     QuizSet,
+    TitleTranslation,
     TransformOutput,
 )
 from humzehan.core.config import Settings
@@ -78,13 +80,20 @@ def make_llm(rounds: list[dict[int, CheckerAction]] | None = None) -> FakeLLM:
         ChunkDraft: rewrite_draft,
         QuizSet: quiz_set,
         CheckerOutput: checker_sequence(rounds or [{}]),
+        ChunkTranslation: translate_chunk,
+        TitleTranslation: translate_title,
     }
     return FakeLLM(handlers=handlers)
 
 
-def run(llm: FakeLLM, settings: Settings, mode: LearningMode = LearningMode.FOCUS) -> AgentState:
+def run(
+    llm: FakeLLM,
+    settings: Settings,
+    mode: LearningMode = LearningMode.FOCUS,
+    urdu: bool = False,
+) -> AgentState:
     graph = build_graph(llm, settings)
-    return graph.invoke({"source_text": SOURCE, "mode": mode, "urdu": False, "trace": []})
+    return graph.invoke({"source_text": SOURCE, "mode": mode, "urdu": urdu, "trace": []})
 
 
 @pytest.mark.parametrize("mode", list(LearningMode))
@@ -231,3 +240,66 @@ def test_verified_missing_fact_is_rewritten_with_quote(settings: Settings) -> No
     assert len(rewrites) == 2  # flagged again each round until max loops (fake keeps flagging)
     assert "QUOTE: This is called photosynthesis." in rewrites[0].user
     assert state["loops"] == settings.agent_max_loops
+
+
+# --- F5: simple Urdu (translation runs after the checker) ---
+
+
+@pytest.mark.parametrize("mode", list(LearningMode))
+def test_urdu_false_never_calls_translation(mode: LearningMode, settings: Settings) -> None:
+    llm = make_llm()
+    state = run(llm, settings, mode, urdu=False)
+    lesson = build_lesson(state, student="Ali")
+
+    assert llm.calls_for(ChunkTranslation) == []
+    assert llm.calls_for(TitleTranslation) == []
+    assert state["trace"][-1].node == "checker"
+    assert lesson.urdu is False
+    assert lesson.english is None
+
+
+@pytest.mark.parametrize("mode", list(LearningMode))
+def test_urdu_true_translates_after_the_checker(mode: LearningMode, settings: Settings) -> None:
+    llm = make_llm(rounds=[{1: "simplify"}, {}])
+    state = run(llm, settings, mode, urdu=True)
+    lesson = build_lesson(state, student="Ali")
+
+    nodes = [step.node for step in state["trace"]]
+    assert nodes[-2:] == ["checker", "urdu"]
+    assert nodes.count("urdu") == 1
+    assert llm.batch_sizes(ChunkTranslation) == [2]  # every chunk, once, after the loop
+    # The checker only ever saw English chunks.
+    assert all(URDU not in call.user for call in llm.calls_for(CheckerOutput))
+    assert lesson.urdu is True
+    assert lesson.title == f"{URDU} Photosynthesis"
+    assert [c.heading for c in lesson.chunks] == [f"{URDU} Food from light", f"{URDU} Rewritten 1"]
+    assert lesson.english is not None
+    assert lesson.english.title == "Photosynthesis"
+    assert [c.heading for c in lesson.english.chunks] == ["Food from light", "Rewritten 1"]
+    assert all(len(c.quiz) == 3 for c in lesson.chunks + lesson.english.chunks)
+
+
+def test_urdu_runs_when_the_loop_limit_is_reached() -> None:
+    settings = Settings(_env_file=None, app_env="test", agent_max_loops=1)
+    llm = make_llm(rounds=[{0: "simplify"}])  # never approved
+    state = run(llm, settings, urdu=True)
+
+    assert state["loops"] == 1
+    assert [s.node for s in state["trace"]][-2:] == ["checker", "urdu"]
+    assert state["english"] is not None
+
+
+def test_failed_translation_returns_english_lesson(settings: Settings) -> None:
+    llm = make_llm()
+    llm.handlers[ChunkTranslation] = lambda user: translate_chunk(user).model_copy(
+        update={"quiz": []}
+    )
+    state = run(llm, settings, urdu=True)
+    lesson = build_lesson(state, student="Ali")
+
+    assert llm.batch_sizes(ChunkTranslation) == [2, 2]  # first try + one retry
+    assert lesson.urdu is False
+    assert lesson.english is None
+    assert lesson.title == "Photosynthesis"
+    assert all(len(c.quiz) == 3 for c in lesson.chunks)
+    assert "showing English" in state["trace"][-1].note

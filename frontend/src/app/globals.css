@@ -56,11 +56,11 @@ body {
 }
 .prose-lesson ul {
   list-style: disc;
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 .prose-lesson ol {
   list-style: decimal;
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 .prose-lesson li + li {
   margin-top: 0.35em;
@@ -89,6 +89,23 @@ body {
 .mode-easyread .chunk-card {
   background: var(--cream);
   border-color: var(--cream-border);
+}
+
+/* Simple Urdu (F5): Nastaliq needs larger text and tall lines. Elements carry lang="ur" dir="rtl";
+   English terms, numbers and formulas are wrapped in direction isolates (lib/bidi.ts) and use
+   the sans font, because the Urdu font is loaded for Arabic script only. */
+.lesson-urdu {
+  font-family: var(--font-urdu-family), var(--font-geist-sans), system-ui, sans-serif;
+  line-height: 2.2;
+  unicode-bidi: isolate;
+}
+.lesson-urdu .chunk-card {
+  font-size: 1.2rem;
+}
+/* Letter spacing breaks the joined letters of Urdu script. */
+.lesson-urdu,
+.lesson-urdu * {
+  letter-spacing: normal;
 }
 
 /* Calm "working" indicator: a slow fade, static for reduced motion. */

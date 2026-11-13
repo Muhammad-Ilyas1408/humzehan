@@ -99,7 +99,28 @@ Each feature is built in its own branch and pull request.
   unreadable photos get clear messages. Photos are never stored.
 
 ### F5 — Simple Urdu
-- An "Urdu" toggle produces the lesson in simple Urdu, with correct right-to-left display.
+- A "Get this lesson in simple Urdu" toggle in the form (`urdu` field of `POST /lessons`,
+  default off) combines with any learning style.
+- The lesson is written, quizzed and checked in English as usual (the checker can only verify
+  English against the English source); the approved lesson is then translated as the last step.
+- The translation covers the title, headings, bodies, hooks, glossary and quiz, in the everyday
+  spoken Urdu of a Class 9 student in Pakistan (no heavy academic Arabic/Persian words when a
+  common word exists; one consistent term per concept), in Urdu script and in the chosen style
+  (e.g. short sentences for Easy-read). The first time a key term appears it is written in Urdu
+  followed by the English in brackets ("قوت (force)"); numbers, formulas and symbols are
+  unchanged; Literal sections use the fixed labels یہ کیا ہے / یہ کیسے کام کرتا ہے / مثال.
+  Facts are never added, dropped or changed.
+- Every bold key term of the English chunk should appear in English in the Urdu chunk; a chunk
+  missing one is retried once and then accepted (noted in the trace).
+- The translation is validated in code (same number of chunks, glossary items, questions and
+  options; every quiz answer unchanged). A failing chunk is retried once; if it still fails the
+  student gets the English lesson with a note, never a broken lesson. The trace shows the step.
+- The English version is kept with the Urdu lesson; a "Show English" / "Show Urdu" button
+  switches between them without losing quiz answers or ticks.
+- Urdu lessons display right-to-left (`lang="ur"`, `dir="rtl"`) in Noto Nastaliq Urdu with
+  generous line height; English terms, numbers and formulas stay readable left-to-right; lesson
+  labels (key idea, quick quiz, check, score, glossary, chunk done) are in Urdu, the rest of the
+  page stays English. The score always reads correctly (e.g. "3 میں سے 1", 1 out of 3).
 
 ### F6 — Read aloud
 - Each chunk has a "Listen" button using the browser's speech engine (Urdu voice when available).

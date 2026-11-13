@@ -15,8 +15,15 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from humzehan.agents.state import CheckerOutput, ChunkDraft, QuizSet, TransformOutput
-from humzehan.schemas.lesson import QuizItem
+from humzehan.agents.state import (
+    CheckerOutput,
+    ChunkDraft,
+    ChunkTranslation,
+    QuizSet,
+    TitleTranslation,
+    TransformOutput,
+)
+from humzehan.schemas.lesson import Chunk, GlossaryItem, QuizItem
 from humzehan.services.extract_service import PageText
 
 Handler = Callable[[str], BaseModel]
@@ -118,13 +125,52 @@ def _approve_all(_: str) -> CheckerOutput:
     return CheckerOutput(reviews=[], suspect_judgments=[])  # missing reviews count as approve
 
 
+URDU = "اردو"  # prefix the fake translator puts before every translated text
+
+
+def english_chunk_in(user: str) -> Chunk:
+    """The English chunk the urdu node put into a translation prompt (as JSON)."""
+    payload = user.split("ENGLISH CHUNK (JSON):\n", 1)[1].rsplit("\n\nTranslate", 1)[0]
+    return Chunk.model_validate_json(payload)
+
+
+def translate_chunk(user: str) -> ChunkTranslation:
+    """Fake translation: same structure, every text prefixed with URDU."""
+    chunk = english_chunk_in(user)
+    return ChunkTranslation(
+        heading=f"{URDU} {chunk.heading}",
+        body=f"{URDU} {chunk.body}",
+        hook=None if chunk.hook is None else f"{URDU} {chunk.hook}",
+        glossary=[
+            GlossaryItem(term=f"{URDU} {g.term}", meaning=f"{URDU} {g.meaning}")
+            for g in chunk.glossary
+        ],
+        quiz=[
+            QuizItem(
+                question=f"{URDU} {q.question}",
+                options=[f"{URDU} {o}" for o in q.options],
+                answer_index=q.answer_index,
+            )
+            for q in chunk.quiz
+        ],
+    )
+
+
+def translate_title(user: str) -> TitleTranslation:
+    title = user.split("ENGLISH LESSON TITLE:\n", 1)[1].split("\n", 1)[0]
+    return TitleTranslation(title=f"{URDU} {title}")
+
+
 def make_lesson_llm() -> FakeLLM:
-    """A FakeLLM that produces a 2-chunk lesson ("Photosynthesis") approved on the first check."""
+    """A FakeLLM that produces a 2-chunk lesson ("Photosynthesis") approved on the first check,
+    and translates it (structure kept, texts prefixed with URDU) when Urdu is requested."""
     return FakeLLM(
         handlers={
             TransformOutput: _transform_output,
             QuizSet: _quiz_set,
             CheckerOutput: _approve_all,
+            ChunkTranslation: translate_chunk,
+            TitleTranslation: translate_title,
         }
     )
 

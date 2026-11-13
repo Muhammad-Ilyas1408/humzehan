@@ -30,6 +30,7 @@ export function LessonForm({ busy, onSubmit }: LessonFormProps) {
   const name = editedName ?? storedName;
   const [text, setText] = useState("");
   const [mode, setMode] = useState<LearningMode>("focus");
+  const [urdu, setUrdu] = useState(false);
   const [source, setSource] = useState<Source>("text");
   const [readingPhoto, setReadingPhoto] = useState(false);
   const [fromPhoto, setFromPhoto] = useState(false);
@@ -56,7 +57,7 @@ export function LessonForm({ busy, onSubmit }: LessonFormProps) {
     if (!canSubmit) return;
     const student = name.trim();
     saveStudentName(student);
-    onSubmit({ student, mode, text });
+    onSubmit({ student, mode, text, urdu });
   }
 
   return (
@@ -183,6 +184,26 @@ export function LessonForm({ busy, onSubmit }: LessonFormProps) {
           })}
         </div>
       </fieldset>
+
+      <label
+        className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
+          urdu ? "border-accent bg-accent-soft" : "border-border bg-surface"
+        } ${busy ? "cursor-not-allowed opacity-60" : ""}`}
+      >
+        <input
+          type="checkbox"
+          checked={urdu}
+          onChange={(e) => setUrdu(e.target.checked)}
+          disabled={busy}
+          className="h-5 w-5 shrink-0 accent-accent focus-visible:outline-none"
+        />
+        <span className="flex flex-col">
+          <span className="text-lg font-semibold">Get this lesson in simple Urdu</span>
+          <span className="text-sm text-muted">
+            Science terms stay in English in brackets. You can switch back to English anytime.
+          </span>
+        </span>
+      </label>
 
       <div>
         <button

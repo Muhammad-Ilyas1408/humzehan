@@ -1,10 +1,14 @@
 import ReactMarkdown from "react-markdown";
+import { rehypeIsolateLtr } from "../lib/bidi";
 
-/** Renders lesson Markdown. Raw HTML in the text is not rendered (react-markdown default). */
-export function Markdown({ children }: { children: string }) {
+const ISOLATE_PLUGINS = [rehypeIsolateLtr];
+
+/** Renders lesson Markdown. Raw HTML in the text is not rendered (react-markdown default).
+ * `isolate` (Urdu lessons) keeps English terms, numbers and formulas left-to-right. */
+export function Markdown({ children, isolate = false }: { children: string; isolate?: boolean }) {
   return (
     <div className="prose-lesson">
-      <ReactMarkdown>{children}</ReactMarkdown>
+      <ReactMarkdown rehypePlugins={isolate ? ISOLATE_PLUGINS : undefined}>{children}</ReactMarkdown>
     </div>
   );
 }

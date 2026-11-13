@@ -50,12 +50,22 @@ class TraceStep(BaseModel):
     ms: int = Field(ge=0)
 
 
+class EnglishVersion(BaseModel):
+    """The English lesson that an Urdu lesson was translated from (F5)."""
+
+    title: str
+    chunks: list[Chunk]
+
+
 class Lesson(BaseModel):
     lesson_id: str
     student: str
     mode: LearningMode
-    urdu: bool
+    urdu: bool = Field(description="True when title and chunks are in Urdu")
     title: str
     chunks: list[Chunk]
+    english: EnglishVersion | None = Field(
+        default=None, description="Urdu lessons: the original English title and chunks"
+    )
     trace: list[TraceStep]
     created_at: datetime
