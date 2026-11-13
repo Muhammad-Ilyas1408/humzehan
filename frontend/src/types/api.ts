@@ -58,3 +58,8 @@ export interface CreateLessonInput {
   mode: LearningMode;
   text: string;
 }
+
+/** Response of POST /api/v1/extract: the text read from a photo. */
+export interface ExtractResponse {
+  text: string;
+}

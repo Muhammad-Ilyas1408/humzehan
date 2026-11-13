@@ -1,8 +1,10 @@
-"""A fake chat model for tests: no network, fixed structured responses."""
+"""Fake chat models and test images: no network, fixed structured responses."""
 
+import base64
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -10,10 +12,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from humzehan.agents.state import CheckerOutput, ChunkDraft, QuizSet, TransformOutput
 from humzehan.schemas.lesson import QuizItem
+from humzehan.services.extract_service import PageText
 
 Handler = Callable[[str], BaseModel]
 
@@ -123,3 +127,69 @@ def make_lesson_llm() -> FakeLLM:
             CheckerOutput: _approve_all,
         }
     )
+
+
+class FakeVisionLLM(BaseChatModel):
+    """Fake vision model: records the messages and returns ``page`` (or raises ``error``)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    page: PageText = Field(
+        default_factory=lambda: PageText(text="# Plants\n\nPlants make food.", legible=True)
+    )
+    error: Exception | None = None
+    calls: list[list[BaseMessage]] = Field(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-vision"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        raise NotImplementedError("FakeVisionLLM only supports with_structured_output")
+
+    def with_structured_output(  # type: ignore[override]
+        self, schema: type[BaseModel], **kwargs: Any
+    ) -> Runnable[Any, BaseModel]:
+        def respond(messages: list[BaseMessage]) -> BaseModel:
+            self.calls.append(list(messages))
+            if self.error is not None:
+                raise self.error
+            return self.page
+
+        return RunnableLambda(respond)
+
+    def sent_image(self, call: int = -1) -> Image.Image:
+        """Decode the image that was sent to the model in call number ``call``."""
+        human = self.calls[call][-1]
+        assert isinstance(human.content, list)
+        block = next(b for b in human.content if isinstance(b, dict) and b["type"] == "image_url")
+        url: str = block["image_url"]["url"]
+        prefix = "data:image/jpeg;base64,"
+        assert url.startswith(prefix)
+        image = Image.open(BytesIO(base64.b64decode(url.removeprefix(prefix))))
+        image.load()
+        return image
+
+
+def make_image(fmt: str = "PNG", size: tuple[int, int] = (200, 100), **save: Any) -> bytes:
+    """Bytes of a small generated image (white, with a black bar on the left half)."""
+    image = Image.new("RGB", size, (255, 255, 255))
+    image.paste((0, 0, 0), (0, 0, size[0] // 2, size[1]))
+    if fmt == "GIF":
+        image = image.convert("P")
+    out = BytesIO()
+    image.save(out, format=fmt, **save)
+    return out.getvalue()
+
+
+def make_rotated_jpeg(size: tuple[int, int] = (200, 100)) -> bytes:
+    """A JPEG stored as ``size`` whose EXIF orientation (6) says "rotate 90° clockwise to view"."""
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation
+    return make_image("JPEG", size, exif=exif)

@@ -6,7 +6,7 @@
 | **Tagline** | Study the way your mind works. |
 | **Owner** | Muhammad Ilyas |
 | **Status** | v1.0 in development |
-| **Last updated** | 2026-11-10 |
+| **Last updated** | 2026-11-13 |
 
 ## 1. Overview
 
@@ -92,8 +92,11 @@ Each feature is built in its own branch and pull request.
 - Clear loading and error states.
 
 ### F4 — Photo upload
-- Student can upload a photo of a page (JPG/PNG, size-limited).
-- The ingest step extracts the text with a vision model before transforming.
+- Student can upload or take a photo of a page (JPG, PNG or WEBP, up to 10 MB), with photo tips.
+- A vision model reads the printed text in a separate step before transforming; the text appears
+  in the text box, where the student checks and fixes it, then transforms it as usual.
+- The agent's ingest step stays text-only. Wrong file types, empty or too-large files and
+  unreadable photos get clear messages. Photos are never stored.
 
 ### F5 — Simple Urdu
 - An "Urdu" toggle produces the lesson in simple Urdu, with correct right-to-left display.

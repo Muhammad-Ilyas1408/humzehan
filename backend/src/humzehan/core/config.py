@@ -2,9 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -22,9 +22,12 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     openai_api_key: SecretStr = SecretStr("")
     llm_model: str = "gpt-4o-mini"
+    # Model that reads text from photos; empty means "same as llm_model".
+    vision_model: str = ""
     agent_max_loops: int = 2
     database_path: Path = Path("humzehan.db")
     max_source_chars: int = Field(default=8000, gt=0)
+    max_image_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -38,6 +41,12 @@ class Settings(BaseSettings):
     @classmethod
     def _upper_log_level(cls, value: object) -> object:
         return value.upper() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _default_vision_model(self) -> Self:
+        if not self.vision_model.strip():
+            self.vision_model = self.llm_model
+        return self
 
 
 @lru_cache

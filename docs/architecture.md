@@ -2,7 +2,7 @@
 
 How HumZehan is built. Product requirements are in [`PRD.md`](PRD.md). Update this file in the same pull request whenever the design changes.
 
-_Last updated: 2026-11-11_
+_Last updated: 2026-11-13_
 
 ## 1. System overview
 
@@ -11,9 +11,13 @@ Browser (Next.js frontend)
     │  HTTP/JSON  (multipart for photos)
     ▼
 FastAPI backend  ──►  services  ──►  LangGraph agent  ──►  LLM provider (OpenAI)
-                          │
+                          │  └─────►  vision model (photo → text) ──┘
                           └──────►  repositories  ──►  SQLite
 ```
+
+A photo is read in a **separate step before transforming**: `POST /extract` returns the text, the
+student checks and fixes it in the text box, then `POST /lessons` transforms it. The agent only
+ever receives text.
 
 | Part | Technology | Responsibility |
 | --- | --- | --- |
@@ -38,7 +42,7 @@ humzehan/
 │   │   ├── api/            # deps.py (FastAPI dependencies: settings, agent graph, services)
 │   │   ├── api/v1/         # router.py + one module per resource (health.py, lessons.py, ...)
 │   │   ├── schemas/        # Pydantic models: the API contract
-│   │   ├── services/       # business logic
+│   │   ├── services/       # business logic; images.py (photo prep), prompts/extract.md
 │   │   ├── agents/         # LangGraph: state.py, graph.py, nodes/, prompts/
 │   │   ├── llm/            # LLM client factory
 │   │   └── db/             # session.py (connect, init_db) + repositories.py
@@ -79,9 +83,12 @@ Wiring (`api/deps.py`):
 - `get_agent_graph` builds the graph once with `get_chat_model(settings)`, lazily on first use, and
   caches it on `app.state` (behind a lock). Tests override it via `app.dependency_overrides` with a
   graph on the fake LLM, so no OpenAI client is ever built in tests.
+- `get_vision_llm` builds the vision model the same way (once, lazily, cached on `app.state`
+  behind a lock); tests override it with `FakeVisionLLM`.
 - `get_*_service` dependencies build the repositories and services; routes receive a service only.
 - The agent call is blocking: `POST /lessons` runs `LessonService.create` with
-  `run_in_threadpool`; other routes are plain `def` (FastAPI runs them in its threadpool).
+  `run_in_threadpool`, and `POST /extract` runs `ExtractService.extract` the same way; other
+  routes are plain `def` (FastAPI runs them in its threadpool).
 - Repositories open a short-lived SQLite connection per operation, so no connection is shared
   between threads.
 
@@ -96,9 +103,11 @@ Loaded from environment variables / `backend/.env` by `core/config.py`.
 | `CORS_ORIGINS` | `http://localhost:3000` | Allowed frontend origins (comma-separated) |
 | `OPENAI_API_KEY` | — | LLM provider key (secret) |
 | `LLM_MODEL` | `gpt-4o-mini` | Model used by all agent nodes |
+| `VISION_MODEL` | same as `LLM_MODEL` | Model that reads text from photos (must accept images); empty → `LLM_MODEL` |
 | `AGENT_MAX_LOOPS` | `2` | Maximum rewrite rounds sent back by the checker |
 | `DATABASE_PATH` | `humzehan.db` | SQLite file location |
 | `MAX_SOURCE_CHARS` | `8000` | Maximum source text length (characters); longer → 400 |
+| `MAX_IMAGE_BYTES` | `10485760` (10 MB) | Maximum photo upload size; larger → 400 |
 
 ## 5. Data models (`schemas/`)
 
@@ -149,6 +158,9 @@ class StudentSummary(BaseModel):
 
 class DashboardSummary(BaseModel):
     students: list[StudentSummary]
+
+class ExtractResponse(BaseModel):  # schemas/extract.py
+    text: str                     # text read from the photo
 ```
 
 ## 6. The agent (`agents/`)
@@ -176,8 +188,7 @@ class ChunkReview(BaseModel):
     quote: str | None              # evidence: see 6.4 (null for approve/simplify/add_glossary)
 
 class AgentState(TypedDict, total=False):
-    source_text: str
-    image_b64: str | None          # F4
+    source_text: str               # always text: photos are read before the agent (7.1)
     mode: LearningMode
     urdu: bool                     # F5
     title: str
@@ -196,7 +207,7 @@ plus `suspect_judgments: list[SuspectJudgment]`, where `SuspectJudgment` is
 
 | Node | Input → output | Notes |
 | --- | --- | --- |
-| `ingest` | `source_text` / `image_b64` → `source_text` | Photo text extraction added in F4 |
+| `ingest` | `source_text` → `source_text` | Text only. Photos are read before the agent by `POST /extract` (7.1), so the student can fix the text first |
 | `router` | `mode` → next node name | No LLM call. The node records the decision in the trace; the pure function `route_by_mode(state)` drives the conditional edges |
 | `*_transform` | `source_text` (+ reviews) → `title`, `chunks`, `loops` | One prompt per mode (one factory builds all three nodes); on a re-run, only non-approved chunks are rewritten using the checker's notes, their quiz is cleared, and `loops` += 1 |
 | `urdu` | `chunks` → `chunks` | Runs only when `urdu=True` (F5) |
@@ -274,7 +285,8 @@ everyday definitions but must not add facts about the lesson topic.
 | Method | Path | Request | Response |
 | --- | --- | --- | --- |
 | GET | `/health` | — | `{status, version}` |
-| POST | `/lessons` | multipart: `student`, `mode`, `urdu`, `text` or `image` | `201` `Lesson` |
+| POST | `/extract` | multipart: `image` (JPEG/PNG/WEBP) | `ExtractResponse` |
+| POST | `/lessons` | multipart: `student`, `mode`, `urdu`, `text` | `201` `Lesson` |
 | GET | `/lessons/{lesson_id}` | — | `Lesson` or `404` |
 | POST | `/progress` | JSON `ProgressCreate` | `204` |
 | GET | `/dashboard` | — | `DashboardSummary` |
@@ -283,10 +295,33 @@ Errors return `{"detail": "<message>"}` with a suitable status code (400 bad inp
 Request bodies that fail schema validation (unknown `mode`, `score` outside 0–3, negative
 `chunk_index`, missing fields) get FastAPI's standard `422` (`detail` is a list of errors).
 
-F2 implements the endpoints for text input only: `POST /lessons` takes `student`, `mode`, `text`
-(`urdu` arrives with F5, `image` with F4). 400 for: blank student, empty text, text longer than
+`POST /lessons` takes `student`, `mode`, `text` (`urdu` arrives with F5); photos go through
+`POST /extract` first. 400 for: blank student, empty text, text longer than
 `MAX_SOURCE_CHARS`, `chunk_index` beyond the lesson's chunks. 404 for an unknown lesson id
 (GET lesson or progress).
+
+### 7.1 Photo text extraction (`POST /extract`)
+
+The route reads at most `MAX_IMAGE_BYTES + 1` bytes and calls `ExtractService.extract`
+(`services/extract_service.py`) in a worker thread:
+
+1. Empty or missing file → 400; more than `MAX_IMAGE_BYTES` → 400.
+2. `prepare_image()` (`services/images.py`, pure): Pillow detects the format **from the file's
+   bytes** (not the name or content type); only JPEG, PNG and WEBP are accepted, anything else
+   or an unreadable/truncated file → 400 "Please upload a JPG, PNG or WEBP photo." Then: rotate
+   using the EXIF orientation, convert to RGB (transparency → white), shrink so the longest side
+   is at most 2048 px (never enlarge), re-encode as JPEG (quality 85).
+3. One vision call (`get_vision_model`, `VISION_MODEL`, temperature 0) with the system prompt
+   `services/prompts/extract.md` and the JPEG as a base64 data URL, structured output
+   `PageText {text, legible}`. The prompt: copy the printed text exactly, keep paragraph breaks
+   and headings (as Markdown headings), skip page numbers and running headers/footers, never
+   summarize, translate, correct or add anything.
+4. Provider error → 502 "The AI service could not read the photo." `legible=false` or empty
+   text → 400 "We couldn't read text in this photo. Try a clearer, well-lit photo of one page."
+5. Returns `{"text": ...}` (stripped). The text is not length-checked here: the student edits it
+   and `POST /lessons` applies `MAX_SOURCE_CHARS`.
+
+The image is **never stored or logged**; a provider failure is logged with the error type only.
 
 ## 8. Database (SQLite)
 
@@ -323,16 +358,27 @@ Storing the full lesson as JSON keeps v1 simple; the repository layer allows mov
 Next.js (App Router) + TypeScript + Tailwind CSS. The study page (`app/page.tsx`) is a server
 page that renders one client component, `features/lessons/components/StudyPage.tsx`.
 
-**API client** (`lib/api.ts`): `createLesson()` (multipart `POST /lessons`) and
-`recordProgress()` (JSON `POST /progress`), typed with `types/api.ts`. The base URL is
+**API client** (`lib/api.ts`): `createLesson()` (multipart `POST /lessons`),
+`extractText()` (multipart `POST /extract`, returns the text) and `recordProgress()`
+(JSON `POST /progress`), typed with `types/api.ts`. The base URL is
 `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`, see `frontend/.env.example`). Errors become
 an `ApiError` whose message is the backend's `detail` (string, or the first message of a 422
 list); a network failure gives a friendly "couldn't reach the server" message.
 
 **Study page states:** `idle → loading → ready | error`.
-- *Form:* student name (remembered in `localStorage`, all access in try/catch), study text with a
-  character counter (`MAX_SOURCE_CHARS` = 8000, mirrored in `lib/config.ts`), learning-style
-  radio cards, Transform button.
+- *Form:* student name (remembered in `localStorage`, all access in try/catch), a "Paste text" /
+  "Upload a photo" choice, study text with a character counter (`MAX_SOURCE_CHARS` = 8000,
+  mirrored in `lib/config.ts`), learning-style radio cards, Transform button (only in the text
+  view, and not while a photo is being read).
+- *Photo* (`PhotoInput.tsx`): file input accepting JPEG/PNG/WEBP (no `capture` attribute, so
+  phones offer the camera and the photo library), checked in the browser first with
+  `checkPhoto()` (`features/lessons/lib/photo.ts`; type and `MAX_IMAGE_BYTES` = 10 MB, mirrored in
+  `lib/config.ts`), a preview (`URL.createObjectURL`, released when replaced or unmounted), photo
+  tips, and "Read text from photo". While reading: a calm "Reading your photo…" status. On success
+  the text replaces the text box, the view switches to "Paste text" and a note says "Check the text
+  below and fix any mistakes before you transform." Errors (client checks, backend `detail`,
+  unreachable server) are shown inline. Both views stay mounted, so the photo is kept when
+  switching.
 - *Loading:* the API answers only when the lesson is finished, so the page lists the pipeline
   steps with an elapsed-time counter; no step is marked done and no checker decision is shown.
 - *Ready:* a collapsible **Agent trace** (`<details>`) with the real `trace` (node, note, ms,
@@ -358,23 +404,25 @@ input), visible focus ring, touch targets at least 44px, single column on phones
 animation is a slow pulse that stops under `prefers-reduced-motion`.
 
 **Tests:** Vitest (`npm test`) for pure helpers in `features/lessons/lib/` and `lib/api.ts`
-(quiz scoring, character limit, Literal sections, error messages).
+(quiz scoring, character limit, Literal sections, photo file checks, error messages).
 
 ## 10. Testing strategy
 
 | Level | What | Tools |
 | --- | --- | --- |
-| Unit | Each agent node, router and loop logic, schemas | pytest + fake LLM |
-| Integration | Each endpoint with a temporary SQLite file and the fake-LLM graph | pytest + FastAPI `TestClient` |
+| Unit | Each agent node, router and loop logic, schemas, photo prep (`prepare_image`) | pytest + fake LLM, images generated with Pillow |
+| Integration | Each endpoint with a temporary SQLite file, the fake-LLM graph and `FakeVisionLLM` | pytest + FastAPI `TestClient` |
 | Evals (F8) | Real pages through the real model; quality scores | `evals/run.py` |
-| Frontend unit | Pure helpers (quiz scoring, character limit, Literal sections, API errors) | Vitest |
+| Frontend unit | Pure helpers (quiz scoring, character limit, Literal sections, photo checks, API errors) | Vitest |
 | CI | Ruff, mypy, pytest; ESLint, type-check, Vitest, build | GitHub Actions on every PR |
 
 ## 11. Observability, security and privacy
 
 - **Logging:** standard logging via `core/logging.py`; never log students' raw text in production.
+  Photos are never logged or stored.
 - **Tracing (F8):** LangSmith or Langfuse, enabled by environment variables.
-- **Limits (F9):** maximum text length and image size; rate limiting per client; API spending cap.
+- **Limits:** maximum text length (`MAX_SOURCE_CHARS`) and photo size (`MAX_IMAGE_BYTES`, real
+  file type checked); rate limiting per client and API spending cap in F9.
 - **Privacy:** no diagnosis or health data is collected; only names, chosen style, lessons and scores.
 
 ## 12. Deployment (F9)
@@ -395,3 +443,4 @@ animation is a slow pulse that stops under `prefers-reduced-motion`.
 | Structured outputs everywhere | Validated data instead of parsing free text |
 | SQLite for v1 | Zero setup; repository layer allows a later move to PostgreSQL |
 | Browser speech for audio | Free, no extra API key |
+| Photo extraction is a separate step before the agent | The student can check and fix the text (photos are often imperfect); the agent stays text-only and works on text the student has seen |

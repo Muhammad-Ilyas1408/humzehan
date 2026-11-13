@@ -1,4 +1,4 @@
-"""Ingest node: prepare the source text (text input only; photos come in F4)."""
+"""Ingest node: prepare the source text (text only; photos are read earlier by POST /extract)."""
 
 from humzehan.agents.nodes._common import add_step, start_timer
 from humzehan.agents.state import AgentState
